@@ -1,16 +1,19 @@
 #!/bin/bash
 
 # Define the directories to be backed up
-source_dirs=(~/code ~/data)
+source_dirs=(~/xwt/rn ~/xwt/text ~/xwt/resources ~/xwt/IDMP)
 
 # Set the destination directory for backups
 backup_dir=~/.backups
 
 # Set the maximum file size for backup (100KB)
-max_file_size="100k"
+max_file_size=10M
 
 # Set the interval between backups (600 seconds = 10 minutes)
 backup_interval=600 # seconds
+
+# Set the minimum disk space required to perform backup
+min_free_space=1000000 # KB
 
 # Set the retention periods for backups
 # First value: 1440 minutes (24 hours)
@@ -18,24 +21,20 @@ backup_interval=600 # seconds
 backup_retention_period=(1440 525600) # minutes
 
 check_space() {
-    if [ $(df -P "$backup_dir" | awk 'NR==2 {print $4}') -lt 1000000 ]; then
-        echo "Less than 1GB free space. Aborting backup." >&2
-        exit 1
+    if [ $(df -P "$backup_dir" | awk 'NR==2 {print $4}') -lt $min_free_space ]; then
+        echo "Insufficient free space. Aborting this backup."
+        return 1  # Indicate failure
     fi
+    return 0  # Indicate success
 }
 
 perform_backup() {
-    date +%Y-%m-%d_%H:%M:%S
-
-    # Check if disk has enough space
-    check_space
-
     # Create a timestamp for the current backup
     timestamp=$(date +%Y%m%d_%H%M%S)
     backup_dest="$backup_dir/$timestamp"
 
     # Create a temporary directory for the current backup
-    mkdir -p "$backup_dest"
+    mkdir "$backup_dest"
 
     # Iterate over each source directory and back it up
     for source_dir in "${source_dirs[@]}"; do
@@ -44,14 +43,19 @@ perform_backup() {
     done
 
     # Compress the backup into a .tgz file
+    echo "Creating: $timestamp.tgz"
     tar -czvf "$backup_dir/$timestamp.tgz" "$backup_dest"
     
     # Remove the temporary backup directory
-    rm -rf "$backup_dest"
+    rm -rf $backup_dest
 
     # Remove old backups
     # Find backups older than 1 year and delete them
-    find "$backup_dir" -type f -name "*.tgz" -mmin +$((backup_retention_period[1])) -delete
+    backups_to_remove=$(find "$backup_dir" -type f -name "*.tgz" -mmin +${backup_retention_period[1]})
+    for backup in $backups_to_remove; do
+        echo "Removing: $backup"
+        rm $backup
+    done
 
     # Implement a retention policy for backups between 1 day and 1 year old
     for ((bin=1; bin<=$((backup_retention_period[1] / backup_retention_period[0] - 1)); bin++)); do
@@ -65,6 +69,7 @@ perform_backup() {
             # Delete all backups in this range except the oldest one
             for backup in $backups_to_filter; do
                 if [ "$backup" != "$oldest_backup" ]; then
+                    echo "Removing: $backup"
                     rm $backup
                 fi
             done
@@ -74,10 +79,16 @@ perform_backup() {
 
 main_loop() {
     # Set up a trap to call stop_backup when the script receives a HUP signal
-    trap stop_backup HUP TERM EXIT
+    trap stop_backup HUP TERM
 
     while true; do
-        perform_backup
+        # Log current date and time
+        date +%Y-%m-%d_%H:%M:%S
+
+        # Check if disk has enough space
+        if check_space; then
+            perform_backup
+        fi
 
         # Wait for the specified interval before the next backup
         sleep $backup_interval
@@ -86,7 +97,9 @@ main_loop() {
 
 start_backup() {
     # Create backup directory if it doesn't exist
-    mkdir -p "$backup_dir"
+    if [ ! -d "$backup_dir" ]; then
+        mkdir -p "$backup_dir" 
+    fi
 
     # Check if disk has enough space
     check_space
@@ -96,14 +109,19 @@ start_backup() {
         echo "Backup process already running."
     else
         # Start the backup function in the background and disown it
-        main_loop >> $backup_dir/logs.txt 2>&1 & disown
+        main_loop >> "$backup_dir/logs.txt" 2>&1 & disown
         echo "Backup process started."
     fi
 }
 
 stop_backup() {
+    # Log current date and time
+    date +%Y-%m-%d_%H:%M:%S
+
     # Perform logout backup
-    perform_backup
+    if check_space; then
+        perform_backup
+    fi
 
     # Stop the backup process
     echo "Backup process stopped."
