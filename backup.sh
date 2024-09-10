@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define the directories to be backed up
-source_dirs=(~/xwt/rn ~/xwt/text ~/xwt/resources ~/xwt/IDMP)
+source_dirs=(~/code ~/data)
 
 # Set the destination directory for backups
 backup_dir=~/.backups
