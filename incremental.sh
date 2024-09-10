@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define the directories to be backed up
-source_dirs=(~/code ~/data)
+source_dirs=(~/xwt/rn ~/xwt/text ~/xwt/resources ~/xwt/IDMP)
 
 # Set the destination directory for backups
 backup_dir=~/.backups
@@ -120,7 +120,12 @@ main_loop() {
 
     while true; do
         # Log current date and time
-        date +%Y-%m-%d %H:%M:%S
+        date "+%Y-%m-%d %H:%M:%S"
+
+        # Create backup directory if it doesn't exist
+        if [ ! -d "$backup_dir" ]; then
+            mkdir -p "$backup_dir" 
+        fi
 
         # Check if disk has enough space
         if check_space; then
@@ -155,7 +160,7 @@ start_backup() {
 
 stop_backup() {
     # Log current date and time
-    date +%Y-%m-%d %H:%M:%S
+    date "+%Y-%m-%d %H:%M:%S"
 
     # Perform logout backup
     if check_space; then
