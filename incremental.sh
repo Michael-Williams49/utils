@@ -28,6 +28,41 @@ check_space() {
     return 0  # Indicate success
 }
 
+format_datetime() {
+    input_datetime="$1"  # Get the input date-time as the first argument
+
+    # Extract day, month abbreviation, year (two digits), and time
+    year_two_digits=$(echo "$input_datetime" | cut -d'-' -f1)
+    month_abbr=$(echo "$input_datetime" | cut -d'-' -f2)
+    day=$(echo "$input_datetime" | cut -d'-' -f3 | cut -d' ' -f1)
+    time=$(echo "$input_datetime" | cut -d' ' -f2)
+
+    # Convert month abbreviation to month number
+    case "$month_abbr" in
+        Jan) month_num="01" ;;
+        Feb) month_num="02" ;;
+        Mar) month_num="03" ;;
+        Apr) month_num="04" ;;
+        May) month_num="05" ;;
+        Jun) month_num="06" ;;
+        Jul) month_num="07" ;;
+        Aug) month_num="08" ;;
+        Sep) month_num="09" ;;
+        Oct) month_num="10" ;;
+        Nov) month_num="11" ;;
+        Dec) month_num="12" ;;
+        *) echo "Invalid month abbreviation" ;;
+    esac
+
+    # Construct the full year (assuming 21st century for two-digit years)
+    full_year="20${year_two_digits}"
+
+    # Format the output date-time
+    output_datetime="${full_year}-${month_num}-${day} ${time}"
+
+    echo "$output_datetime" 
+}
+
 perform_backup() {
     # Create a timestamp for the current backup
     timestamp=$(date +%Y%m%d_%H%M%S)
@@ -65,15 +100,15 @@ cleanup_backup() {
     # Find backups older than 1 year and delete them
     
     # List the first level content of the zip file
-    zip_contents=$(unzip -l "$backup_dir/backups.zip")
+    zip_contents=$(unzip -Zs "$backup_dir/backups.zip")
     n_line=$(echo "$zip_contents" | wc -l)
-    file_datetime=$(echo "$zip_contents" | awk -v n_line="$n_line" 'NR > 3 && NR < (n_line - 1) {print $2, $3}')
-    file_name=$(echo "$zip_contents" | awk -v n_line="$n_line" 'NR > 3 && NR < (n_line - 1) {print $4}')
+    file_datetime=$(echo "$zip_contents" | awk -v n_line="$n_line" 'NR > 2 && NR < n_line {print $7 " " $8}')
+    file_name=$(echo "$zip_contents" | awk -v n_line="$n_line" 'NR > 2 && NR < n_line {print $9}')
 
     # Find files older than the specified retention period
     old_files=""
     while read -r name datetime; do
-        past_epoch=$(date -d "$datetime" +%s)
+        past_epoch=$(date -d "$(format_datetime "$datetime")" +%s)
         current_epoch=$(date +%s)
         minutes_ago=$(( (current_epoch - past_epoch) / 60 ))
         if (( $minutes_ago > ${backup_retention_period[1]} )); then
@@ -86,7 +121,7 @@ cleanup_backup() {
         # Find backups in the current time bin
         backups_to_filter=""
         while read -r name datetime; do
-            past_epoch=$(date -d "$datetime" +%s)
+            past_epoch=$(date -d "$(format_datetime "$datetime")" +%s)
             current_epoch=$(date +%s)
             minutes_ago=$(( (current_epoch - past_epoch) / 60 ))
             if [ $minutes_ago -gt $((bin * backup_retention_period[0])) ] && [ $minutes_ago -le $(((bin + 1) * backup_retention_period[0])) ]; then
@@ -116,7 +151,7 @@ cleanup_backup() {
 
 main_loop() {
     # Set up a trap to call stop_backup when the script receives a HUP signal
-    trap stop_backup HUP TERM
+    trap stop_backup EXIT HUP TERM
 
     while true; do
         # Log current date and time
@@ -149,7 +184,7 @@ start_backup() {
     check_space
 
     # Check if backup.sh is already running
-    if pgrep -f "test.sh" | grep -qv $$; then
+    if pgrep -f "backup.sh" | grep -qv $$; then
         echo "Backup process already running."
     else
         # Start the backup function in the background and disown it
@@ -161,6 +196,9 @@ start_backup() {
 stop_backup() {
     # Log current date and time
     date "+%Y-%m-%d %H:%M:%S"
+
+    # Remove the trap to avoid second trigger by EXIT
+    trap '' EXIT HUP TERM
 
     # Perform logout backup
     if check_space; then
